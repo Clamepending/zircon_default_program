@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <zirconLib.h>
+#include <cmath>
 
 // Function declarations
 void lineAvoidance();
@@ -9,38 +10,40 @@ struct Vector {
   float X;
   float Y;
 };
-
 Vector getBallDirection() {
   const int numSensors = 8;  // Assuming you have 8 ball sensors
+  const int numSamples = 10; // Number of samples to take for averaging
   int sensorReadings[numSensors];
 
-  // Read ball sensor values
+  // Read ball sensor values and accumulate readings
   for (int i = 0; i < numSensors; i++) {
-    sensorReadings[i] = readBall(i + 1);
+    int sum = 0;
+    for (int j = 0; j < numSamples; j++) {
+      sum += readBall(i + 1);
+    }
+    sensorReadings[i] = sum / numSamples;
   }
 
-  // Define direction vectors (adjust these based on your sensor positions)
+  int maxBallValue = sensorReadings[0];
+  int maxDirection = 0;
+
+  for (int i = 1; i < numSensors; i++) {
+    if (sensorReadings[i] > maxBallValue) {
+      maxBallValue = sensorReadings[i];
+      maxDirection = i;
+    }
+  }
+
   int directionVectors[numSensors] = {0, 0.7071067812, 1, 0.7071067812, 0, -0.7071067812, -1, -0.7071067812};
 
-  // Calculate net direction based on sensor readings and direction vectors
-  int netDirectionX = 0;
-  int netDirectionY = 0;
-
-  for (int i = 0; i < numSensors; ++i) {
-    netDirectionX += sensorReadings[i] * directionVectors[i];
-    netDirectionY += sensorReadings[i] * directionVectors[(i + numSensors / 4) % numSensors];
-  }
-
-  // Now netDirectionX and netDirectionY represent the net direction of the ball
-  // You can use this information to adjust the robot's movement
-  Serial.println("Net Direction X: " + String(netDirectionX));
-  Serial.println("Net Direction Y: " + String(netDirectionY));
-
-  Vector ball_vector;
-  ball_vector.X = netDirectionX;
-  ball_vector.Y = netDirectionY;
-  return ball_vector;
+  Serial.println(maxDirection);
+  Vector ballVector;
+  ballVector.X = directionVectors[maxDirection];  // Assuming direction corresponds to sensor index
+  ballVector.Y = directionVectors[(maxDirection + 2) % 8];
+  return ballVector;
 }
+
+
 
 float vectorToAngle(const Vector& v) {
   return atan2(v.Y, v.X);
@@ -55,23 +58,27 @@ void moveTowardsVector(const Vector& ball_vector, int power) {
   // Convert the ball vector to an angle
   float ballAngle = vectorToAngle(ball_vector);
 
+  
   // Calculate the difference in angles
   float angleDifference1 = motorAngle1 - ballAngle;
   float angleDifference2 = motorAngle2 - ballAngle;
-  float angleDifference3 = motorAngle2 - ballAngle;
+  float angleDifference3 = motorAngle3 - ballAngle;
 
   // Calculate motor powers based on sin(angle difference)
   int motorPower1 = static_cast<int>(power * sin(angleDifference1));
   int motorPower2 = static_cast<int>(power * sin(angleDifference2));
   int motorPower3 = static_cast<int>(power * sin(angleDifference3));
 
+  // Serial.println(String(angleDifference3) + " " + String(sin(angleDifference1)) + " " + String(sin(angleDifference2)) + " " + String(sin(angleDifference3)) + " ");
+
+
   int sign1 = (motorPower1 < 0) ? 1 : 0;
   int sign2 = (motorPower2 < 0) ? 1 : 0;
   int sign3 = (motorPower3 < 0) ? 1 : 0;
 
-  motor1(motorPower1, sign1);
-  motor1(motorPower2, sign2);
-  motor1(motorPower3, sign3);
+  motor1(abs(motorPower1), sign1);
+  motor2(abs(motorPower2), sign2);
+  motor3(abs(motorPower3), sign3);
   
 }
 
@@ -84,8 +91,14 @@ void moveTowardsHighestBall() {
   // You can use readCompass() for compass direction correction
   while (true) {
     Vector ball_vector = getBallDirection();
+    // Serial.println("X:" + String(ball_vector.X) + " Y:" + String(ball_vector.Y));
+
     moveTowardsVector(ball_vector, 100);
 
+    if (readButton(1)) {
+      Serial.println("Button 1 pressed. Initiating line avoidance program.");
+      lineAvoidance();
+    }
 
   }
 }
@@ -139,6 +152,10 @@ void lineAvoidance() {
       motor2(0, 0);
       motor3(0, 0);
       motor1(0, 0);
+    }
+    if (readButton(2)) {
+      Serial.println("Button 2 pressed. Moving towards the highest ball sensor.");
+      moveTowardsHighestBall();
     }
   }
 }
